@@ -171,7 +171,7 @@ export default function EmojiMirror() {
   // ── Initialize custom hook for hand tracking ───────────────────────────────
   const { 
     handLandmarkerRef, loadModel, detectFromImage: hookDetectFromImage, 
-    startDetectionLoop: hookStartDetectionLoop, stopDetectionLoop, cleanup 
+    startDetectionLoop: hookStartDetectionLoop
   } = useFaceTracker();
 
   // ── Refs ───────────────────────────────────────────────────────────────────
@@ -223,6 +223,22 @@ export default function EmojiMirror() {
   const [streak, setStreak]                 = useState({ gesture:"none", count:0 });
   const [notification, setNotification]     = useState(null);
   const [show3D, setShow3D]                 = useState(false);  // ← NEW
+  const [selectedModel, setSelectedModel]   = useState("/models/trainengine.glb");  // ← NEW: Model switcher
+  const [uploadedModels, setUploadedModels] = useState([]);    // ← NEW: User-uploaded models
+  const [uploadedImages, setUploadedImages] = useState([]);    // ← NEW: User-uploaded images
+  const [uploadedVideos, setUploadedVideos] = useState([]);    // ← NEW: User-uploaded videos
+  const [showUploadUI, setShowUploadUI]     = useState(false); // ← NEW: Upload panel toggle
+
+  // ─── AVAILABLE MODELS (Static + Dynamic) ──────────────────────────────────────
+  const DEFAULT_MODELS = [
+    { path: "/models/trainengine.glb", label: "🚂 Train Engine", name: "trainengine" },
+    { path: "/models/ImageToStl.com_trphystar.glb", label: "⭐ Trophy Star", name: "trophy" },
+  ];
+  
+  const AVAILABLE_MODELS = [
+    ...DEFAULT_MODELS,
+    ...uploadedModels,
+  ];
 
   // ── Theme ──────────────────────────────────────────────────────────────────
   const T = theme === "neon"
@@ -240,6 +256,100 @@ export default function EmojiMirror() {
   const showNotif = useCallback((msg, color="#00ffcc") => {
     setNotification({ msg, color });
     setTimeout(() => setNotification(null), 2500);
+  }, []);
+
+  // ── FILE UPLOAD HANDLERS ──────────────────────────────────────────────────────
+  const handleModelUpload = useCallback((e) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      if (!file.name.toLowerCase().endsWith(".glb")) {
+        showNotif(`⚠ ${file.name} is not GLB format`, "#ff8800");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const blob = new Blob([ev.target.result], { type: "model/gltf-binary" });
+        const blobUrl = URL.createObjectURL(blob);
+        const modelName = file.name.replace(".glb", "");
+        const newModel = {
+          path: blobUrl,
+          label: `📤 ${modelName}`,
+          name: modelName.toLowerCase().replace(/[^a-z0-9]/g, ""),
+          isUploaded: true,
+        };
+        setUploadedModels(prev => [...prev, newModel]);
+        setSelectedModel(blobUrl);
+        showNotif(`✅ Model loaded: ${file.name}`, "#00ffcc");
+      };
+      reader.readAsArrayBuffer(file);
+    });
+    e.target.value = "";
+  }, [showNotif]);
+
+  const handleImageUpload = useCallback((e) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      if (!["jpg", "jpeg", "png", "gif", "webp"].some(ext => file.name.toLowerCase().endsWith(ext))) {
+        showNotif(`⚠ ${file.name} is not an image format`, "#ff8800");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const imageUrl = ev.target.result;
+        setUploadedImages(prev => [...prev, { name: file.name, url: imageUrl, isUploaded: true }]);
+        showNotif(`✅ Image loaded: ${file.name}`, "#00ffcc");
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  }, [showNotif]);
+
+  const handleVideoUpload = useCallback((e) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      if (!["mp4", "webm", "ogg"].some(ext => file.name.toLowerCase().endsWith(ext))) {
+        showNotif(`⚠ ${file.name} is not a video format`, "#ff8800");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const blob = new Blob([ev.target.result], { type: file.type });
+        const videoUrl = URL.createObjectURL(blob);
+        setUploadedVideos(prev => [...prev, { name: file.name, url: videoUrl, isUploaded: true }]);
+        showNotif(`✅ Video loaded: ${file.name}`, "#00ffcc");
+      };
+      reader.readAsArrayBuffer(file);
+    });
+    e.target.value = "";
+  }, [showNotif]);
+
+  const removeUploadedModel = useCallback((index) => {
+    setUploadedModels(prev => {
+      const updated = [...prev];
+      URL.revokeObjectURL(updated[index].path);
+      updated.splice(index, 1);
+      return updated;
+    });
+  }, []);
+
+  const removeUploadedImage = useCallback((index) => {
+    setUploadedImages(prev => {
+      const updated = [...prev];
+      updated.splice(index, 1);
+      return updated;
+    });
+  }, []);
+
+  const removeUploadedVideo = useCallback((index) => {
+    setUploadedVideos(prev => {
+      const updated = [...prev];
+      URL.revokeObjectURL(updated[index].url);
+      updated.splice(index, 1);
+      return updated;
+    });
   }, []);
 
   // ── Stop everything ────────────────────────────────────────────────────────
@@ -550,6 +660,11 @@ export default function EmojiMirror() {
 
       <video ref={videoRef} style={{ display:"none" }} playsInline muted />
 
+      {/* ── HIDDEN FILE INPUTS ── */}
+      <input type="file" id="model-upload" multiple accept=".glb,.gltf" onChange={handleModelUpload} style={{ display:"none" }} />
+      <input type="file" id="image-upload" multiple accept="image/*" onChange={handleImageUpload} style={{ display:"none" }} />
+      <input type="file" id="video-upload" multiple accept="video/*" onChange={handleVideoUpload} style={{ display:"none" }} />
+
       {/* ── HEADER ── */}
       <div style={{ borderBottom:`1px solid ${T.border}`,padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",background:`${T.accent}05` }}>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
@@ -572,7 +687,7 @@ export default function EmojiMirror() {
           ].map(b=>(
             <button key={b.key} onClick={b.toggle} style={{ padding:"4px 8px",fontSize:10,background:b.active?`${T.accent}22`:"transparent",border:`1px solid ${b.active?T.accent:T.border}`,color:b.active?T.accent:T.dim,cursor:"pointer",borderRadius:2 }}>{b.label}</button>
           ))}
-          {["mirror","stats","log","notes","screenshots","combos"].map(tab=>(
+          {["mirror","upload","stats","log","notes","screenshots","combos"].map(tab=>(
             <button key={tab} onClick={()=>setActiveTab(tab)} style={{ padding:"5px 10px",fontSize:9,letterSpacing:2,textTransform:"uppercase",background:activeTab===tab?`${T.accent}18`:"transparent",border:`1px solid ${activeTab===tab?T.accent:T.border}`,color:activeTab===tab?T.accent:T.dim,cursor:"pointer",borderRadius:2 }}>{tab}</button>
           ))}
         </div>
@@ -627,7 +742,7 @@ export default function EmojiMirror() {
                 {/* 3D Three.js layer — overlays canvas absolutely */}
                 {show3D && (
                   <div style={{ position:"absolute", inset:0 }}>
-                    <EmojiScene landmarksRef={landmarksRef} gesture={currentGesture} />
+                    <EmojiScene landmarksRef={landmarksRef} gesture={currentGesture} modelPath={selectedModel} />
                   </div>
                 )}
 
@@ -651,6 +766,25 @@ export default function EmojiMirror() {
                          fontSize:11, letterSpacing:3, fontFamily:"'Courier New',monospace", transition:"all 0.2s" }}>
                 {show3D ? "◈  3D MODE ON — ✊ rotate · 👌 scale · ☝️ paint · click to disable" : "◇  ENABLE 3D LAYER (Three.js)"}
               </button>
+
+              {/* ── MODEL SELECTOR (when 3D is ON) ── */}
+              {show3D && (
+                <div style={{ marginTop:8,padding:"8px 10px",border:"1px solid rgba(136,0,255,0.2)",background:"rgba(136,0,255,0.03)",borderRadius:3 }}>
+                  <div style={{ fontSize:8,color:T.dim,letterSpacing:2,marginBottom:6 }}>▸ SELECT 3D MODEL</div>
+                  <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
+                    {AVAILABLE_MODELS.map(m => (
+                      <button key={m.name} onClick={() => setSelectedModel(m.path)}
+                        style={{ flex:"1 1 auto", padding:"6px 10px", fontSize:9, letterSpacing:1,
+                                 background: selectedModel === m.path ? "rgba(136,0,255,0.18)" : "rgba(255,255,255,0.02)",
+                                 border: `1px solid ${selectedModel === m.path ? "#8800ff" : "rgba(255,255,255,0.07)"}`,
+                                 color: selectedModel === m.path ? "#cc00ff" : "#555",
+                                 cursor:"pointer", borderRadius:2, fontFamily:"'Courier New',monospace", transition:"all 0.2s" }}>
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Debug panel */}
               {showDebug && gestureDebug && (
@@ -687,10 +821,57 @@ export default function EmojiMirror() {
               <div style={{ marginTop:12 }}>
                 {inputMode==="image" && (
                   <>
-                    <div style={{ fontSize:8,color:T.dim,letterSpacing:3,marginBottom:6 }}>▸ DETECT FROM hand.jpg</div>
-                    <button onClick={detectFromImage} disabled={!modelReady||scanning}
+                    <div style={{ fontSize:8,color:T.dim,letterSpacing:3,marginBottom:6 }}>▸ SELECT IMAGE & DETECT</div>
+                    
+                    {/* Image selector with uploaded images */}
+                    {uploadedImages.length > 0 && (
+                      <div style={{ marginBottom:8,padding:"8px",border:"1px solid rgba(0,255,204,0.15)",background:"rgba(0,255,204,0.03)",borderRadius:3 }}>
+                        <select id="image-selector" style={{ width:"100%",padding:"6px",fontSize:9,background:"#111",border:"1px solid #333",color:"#00ffcc",borderRadius:2,marginBottom:6,fontFamily:"'Courier New',monospace" }}>
+                          <option value="static">📷 Default (hand.jpg)</option>
+                          {uploadedImages.map((img, i) => (
+                            <option key={i} value={`uploaded-${i}`}>📤 {img.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    
+                    <button onClick={() => {
+                      const selector = document.getElementById("image-selector");
+                      const selected = selector ? selector.value : "static";
+                      if (selected.startsWith("uploaded-")) {
+                        const idx = parseInt(selected.split("-")[1]);
+                        const img = new Image();
+                        img.src = uploadedImages[idx].url;
+                        img.onload = () => {
+                          if (!handLandmarkerRef.current || !modelReady) return;
+                          setScanning(true);
+                          try {
+                            const canvas = canvasRef.current;
+                            const ctx = canvas.getContext("2d");
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            ctx.drawImage(img, 0, 0);
+                            const lm = hookDetectFromImage(img);
+                            if (lm) {
+                              landmarksRef.current = lm;
+                              drawHand(ctx, lm, canvas.width, canvas.height);
+                              const gesture = classifyGesture(lm);
+                              triggerAction(gesture, lm);
+                              showNotif("✅ Detection complete!", "#00ffcc");
+                            } else {
+                              landmarksRef.current = null;
+                              triggerAction("none", null);
+                              renderGrid();
+                            }
+                          } catch (e) { console.error(e); }
+                          setScanning(false);
+                        };
+                      } else {
+                        detectFromImage();
+                      }
+                    }} disabled={!modelReady||scanning}
                       style={{ width:"100%",padding:"12px",cursor:modelReady&&!scanning?"pointer":"not-allowed",background:modelReady?`${T.accent}12`:"rgba(255,255,255,0.02)",border:`1px solid ${modelReady?T.accent:"rgba(255,255,255,0.07)"}`,borderRadius:3,color:modelReady?T.accent:"#444",fontSize:12,letterSpacing:3,fontFamily:"'Courier New',monospace",transition:"all 0.2s" }}>
-                      {scanning?"⏳ DETECTING...":modelReady?"▶  RUN DETECTION ON hand.jpg":"⏳ LOADING MEDIAPIPE..."}
+                      {scanning?"⏳ DETECTING...":modelReady?"▶  RUN DETECTION":"⏳ LOADING MEDIAPIPE..."}
                     </button>
                   </>
                 )}
@@ -698,14 +879,48 @@ export default function EmojiMirror() {
                   <>
                     <div style={{ fontSize:8,color:T.dim,letterSpacing:3,marginBottom:6 }}>▸ VIDEO FILE CONTROLS</div>
                     {videoError&&<div style={{ marginBottom:6,padding:"7px 10px",background:"rgba(255,68,68,0.07)",border:"1px solid rgba(255,68,68,0.2)",borderRadius:3,fontSize:9,color:"#ff6666" }}>⚠ {videoError}</div>}
+                    
+                    {/* Video selector */}
+                    {uploadedVideos.length > 0 && (
+                      <div style={{ marginBottom:8,padding:"8px",border:"1px solid rgba(255,204,0,0.15)",background:"rgba(255,204,0,0.03)",borderRadius:3 }}>
+                        <select id="video-selector" style={{ width:"100%",padding:"6px",fontSize:9,background:"#111",border:"1px solid #333",color:"#ffcc00",borderRadius:2,marginBottom:6,fontFamily:"'Courier New',monospace" }}>
+                          <option value="static">🎞️ Default (hand.mp4)</option>
+                          {uploadedVideos.map((vid, i) => (
+                            <option key={i} value={`uploaded-${i}`}>📤 {vid.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    
                     <div style={{ display:"flex",gap:8 }}>
-                      <button onClick={startVideo} disabled={!modelReady||videoPlaying}
+                      <button onClick={() => {
+                        const selector = document.getElementById("video-selector");
+                        const selected = selector ? selector.value : "static";
+                        if (selected.startsWith("uploaded-")) {
+                          const idx = parseInt(selected.split("-")[1]);
+                          const video = videoRef.current;
+                          video.src = uploadedVideos[idx].url;
+                          video.onloadeddata = () => {
+                            video.play().then(() => {
+                              setVideoPlaying(true);
+                              startDetectionLoop(video, false);
+                            }).catch(e => setVideoError(`${e.message}`));
+                          };
+                          video.onerror = () => setVideoError(`Could not load ${uploadedVideos[idx].name}`);
+                          video.muted = true;
+                          video.playsInline = true;
+                          video.loop = true;
+                          video.load();
+                        } else {
+                          startVideo();
+                        }
+                      }} disabled={!modelReady||videoPlaying}
                         style={{ flex:1,padding:"12px",cursor:modelReady&&!videoPlaying?"pointer":"not-allowed",background:videoPlaying?"rgba(255,68,68,0.05)":modelReady?`${T.accent}12`:"rgba(255,255,255,0.02)",border:`1px solid ${videoPlaying?"rgba(255,68,68,0.2)":modelReady?T.accent:"rgba(255,255,255,0.07)"}`,borderRadius:3,color:videoPlaying?"#555":modelReady?T.accent:"#444",fontSize:11,letterSpacing:3,fontFamily:"'Courier New',monospace" }}>
-                        {!modelReady?"⏳ LOADING...":videoPlaying?"● PLAYING":"▶ PLAY hand.mp4"}
+                        {!modelReady?"⏳ LOADING...":videoPlaying?"● PLAYING":"▶ PLAY VIDEO"}
                       </button>
                       {videoPlaying&&<button onClick={stopVideo} style={{ padding:"12px 16px",cursor:"pointer",background:"rgba(255,68,68,0.08)",border:"1px solid rgba(255,68,68,0.25)",borderRadius:3,color:"#ff6666",fontSize:11,letterSpacing:2,fontFamily:"'Courier New',monospace" }}>■ STOP</button>}
                     </div>
-                    {!videoPlaying&&!videoError&&modelReady&&<div style={{ marginTop:4,fontSize:8,color:"#2a2a2a",letterSpacing:1 }}>Place video at <span style={{ color:"#444" }}>public/videos/hand.mp4</span></div>}
+                    {!videoPlaying&&!videoError&&modelReady&&uploadedVideos.length===0&&<div style={{ marginTop:4,fontSize:8,color:"#2a2a2a",letterSpacing:1 }}>Place video at <span style={{ color:"#444" }}>public/videos/hand.mp4</span></div>}
                   </>
                 )}
                 {inputMode==="webcam" && (
@@ -760,6 +975,7 @@ export default function EmojiMirror() {
                   ["TOP GESTURE", topGesture?`${topGesture[0].replace(/_/g," ")} (${topGesture[1]})`:"—"],
                   ["FPS",         isLive?fps:"—"],
                   ["3D MODE",     show3D?"ON":"OFF"],
+                  ["3D MODEL",    show3D ? AVAILABLE_MODELS.find(m=>m.path===selectedModel)?.label.replace(/^[^\s]+\s/, "") : "—"],
                 ].map(([k,v])=>(
                   <div key={k} style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
                     <span style={{ fontSize:8,color:"#333",letterSpacing:1 }}>{k}</span>
@@ -890,6 +1106,79 @@ export default function EmojiMirror() {
                   ))}
                 </div>
             }
+          </div>
+        )}
+
+        {/* ── UPLOAD TAB ── */}
+        {activeTab==="upload" && (
+          <div>
+            <div style={{ fontSize:9,color:T.dim,letterSpacing:3,marginBottom:16 }}>▸ FILE MANAGEMENT · Upload GLB, Images, Videos</div>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16 }}>
+              {/* Models Upload */}
+              <div>
+                <div style={{ fontSize:9,color:T.dim,letterSpacing:2,marginBottom:10 }}>3D MODELS (.glb)</div>
+                <button onClick={()=>document.getElementById("model-upload").click()}
+                  style={{ width:"100%",padding:"10px",marginBottom:10,cursor:"pointer",background:"rgba(136,0,255,0.1)",border:"1px dashed rgba(136,0,255,0.3)",color:"#8800ff",fontSize:10,borderRadius:3,transition:"all 0.2s" }}>
+                  ➕ UPLOAD GLB MODELS
+                </button>
+                <div style={{ fontSize:8,color:"#2a2a2a",marginBottom:8 }}>Uploaded: {uploadedModels.length}</div>
+                <div style={{ display:"flex",flexDirection:"column",gap:2,maxHeight:300,overflowY:"auto" }}>
+                  {uploadedModels.map((model, i) => (
+                    <div key={i} style={{ padding:"6px 8px",border:"1px solid rgba(136,0,255,0.2)",background:"rgba(136,0,255,0.05)",borderRadius:2,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      <span style={{ fontSize:8,color:"#aaa",overflow:"hidden",textOverflow:"ellipsis" }}>{model.name}</span>
+                      <button onClick={()=>removeUploadedModel(i)} style={{ padding:"2px 6px",fontSize:7,background:"rgba(255,68,68,0.2)",border:"1px solid rgba(255,68,68,0.4)",color:"#ff6666",cursor:"pointer",borderRadius:2 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Images Upload */}
+              <div>
+                <div style={{ fontSize:9,color:T.dim,letterSpacing:2,marginBottom:10 }}>IMAGES (.jpg, .png, .gif)</div>
+                <button onClick={()=>document.getElementById("image-upload").click()}
+                  style={{ width:"100%",padding:"10px",marginBottom:10,cursor:"pointer",background:"rgba(0,255,204,0.1)",border:"1px dashed rgba(0,255,204,0.3)",color:"#00ffcc",fontSize:10,borderRadius:3,transition:"all 0.2s" }}>
+                  ➕ UPLOAD IMAGES
+                </button>
+                <div style={{ fontSize:8,color:"#2a2a2a",marginBottom:8 }}>Uploaded: {uploadedImages.length}</div>
+                <div style={{ display:"flex",flexDirection:"column",gap:2,maxHeight:300,overflowY:"auto" }}>
+                  {uploadedImages.map((img, i) => (
+                    <div key={i} style={{ padding:"6px 8px",border:"1px solid rgba(0,255,204,0.2)",background:"rgba(0,255,204,0.05)",borderRadius:2,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      <span style={{ fontSize:8,color:"#aaa",overflow:"hidden",textOverflow:"ellipsis" }}>{img.name}</span>
+                      <button onClick={()=>removeUploadedImage(i)} style={{ padding:"2px 6px",fontSize:7,background:"rgba(255,68,68,0.2)",border:"1px solid rgba(255,68,68,0.4)",color:"#ff6666",cursor:"pointer",borderRadius:2 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Videos Upload */}
+              <div>
+                <div style={{ fontSize:9,color:T.dim,letterSpacing:2,marginBottom:10 }}>VIDEOS (.mp4, .webm)</div>
+                <button onClick={()=>document.getElementById("video-upload").click()}
+                  style={{ width:"100%",padding:"10px",marginBottom:10,cursor:"pointer",background:"rgba(255,204,0,0.1)",border:"1px dashed rgba(255,204,0,0.3)",color:"#ffcc00",fontSize:10,borderRadius:3,transition:"all 0.2s" }}>
+                  ➕ UPLOAD VIDEOS
+                </button>
+                <div style={{ fontSize:8,color:"#2a2a2a",marginBottom:8 }}>Uploaded: {uploadedVideos.length}</div>
+                <div style={{ display:"flex",flexDirection:"column",gap:2,maxHeight:300,overflowY:"auto" }}>
+                  {uploadedVideos.map((vid, i) => (
+                    <div key={i} style={{ padding:"6px 8px",border:"1px solid rgba(255,204,0,0.2)",background:"rgba(255,204,0,0.05)",borderRadius:2,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      <span style={{ fontSize:8,color:"#aaa",overflow:"hidden",textOverflow:"ellipsis" }}>{vid.name}</span>
+                      <button onClick={()=>removeUploadedVideo(i)} style={{ padding:"2px 6px",fontSize:7,background:"rgba(255,68,68,0.2)",border:"1px solid rgba(255,68,68,0.4)",color:"#ff6666",cursor:"pointer",borderRadius:2 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <div style={{ marginTop:20,padding:12,border:`1px solid ${T.border}`,borderRadius:3,background:`${T.accent}08` }}>
+              <div style={{ fontSize:9,color:T.dim,letterSpacing:2,marginBottom:8 }}>ℹ️ USAGE</div>
+              <ul style={{ fontSize:8,color:"#888",lineHeight:1.6,paddingLeft:16 }}>
+                <li>Upload GLB models to use in 3D mode</li>
+                <li>Upload images to detect hand gestures from photos</li>
+                <li>Upload MP4 videos for continuous gesture tracking</li>
+                <li>Files are stored in browser memory (session)</li>
+                <li>Use Mirror tab to select uploaded files for detection</li>
+              </ul>
+            </div>
           </div>
         )}
 

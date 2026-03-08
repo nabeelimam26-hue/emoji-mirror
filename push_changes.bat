@@ -12,5 +12,5 @@ git commit -m "Refactor: Modular structure with lerp-based smooth movement"
 git push origin main
 
 echo.
-echo 🚀 Changes pushed! Vercel is now building your "Smooth-as-Water" update.
+echo ?? Changes pushed! Vercel is now building your "Smooth-as-Water" update.
 pause

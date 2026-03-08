@@ -46,7 +46,7 @@ function lerpVec3(vec, target, alpha) {
 const PAINT_COLORS = [0x00ffcc, 0xff00aa, 0x8800ff, 0xffcc00, 0xff8800, 0x44ccff];
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
-export default function EmojiScene({ landmarksRef, gesture }) {
+export default function EmojiScene({ landmarksRef, gesture, modelPath = "/models/trainengine.glb" }) {
   const mountRef = useRef(null);
   const stateRef = useRef(null);
   const rafRef = useRef(null);
@@ -193,7 +193,7 @@ export default function EmojiScene({ landmarksRef, gesture }) {
     // ── Load trainengine.glb ───────────────────────────────────────────────────
     const loader = new GLTFLoader();
     loader.load(
-      "/models/trainengine.glb",
+      modelPath,
 
       // ✅ Success
       (gltf) => {
@@ -230,8 +230,8 @@ export default function EmojiScene({ landmarksRef, gesture }) {
         stateRef.current._autoScale = autoScale;
 
         setModelLoaded(true);
-        setStatus("trainengine loaded ✓");
-        console.log("✅ trainengine.glb loaded, auto-scale:", autoScale.toFixed(3));
+        setStatus("model loaded ✓");
+        console.log("✅ Model loaded, auto-scale:", autoScale.toFixed(3));
       },
 
       // 📦 Progress
@@ -458,7 +458,7 @@ export default function EmojiScene({ landmarksRef, gesture }) {
       if (mount.contains(renderer.domElement))
         mount.removeChild(renderer.domElement);
     };
-  }, []);
+  }, [modelPath]);
 
   // ── Status label updates ───────────────────────────────────────────────────
   const gestureLabels = {
