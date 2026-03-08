@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useRef, useCallback } from "react";
-import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { useState, useEffect, useRef, useCallback } from "react";
 const handImage = "/images/hand.jpg";
-import ThreeCanvas from "./ThreeCanvas";   // ← NEW
+import EmojiScene from "./components/EmojiScene";      // ← NEW: 3D scene component
+import { useFaceTracker } from "./utils/useFaceTracker"; // ← NEW: custom hook for hand tracking
 
 // ─── HAND RENDERER ────────────────────────────────────────────────────────────
 const CONNECTIONS = [
@@ -121,18 +121,8 @@ const GESTURE_SOUNDS = {
 };
 
 // ─── MEDIAPIPE ────────────────────────────────────────────────────────────────
-async function loadHandLandmarker(runningMode) {
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-  );
-  return await HandLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-      delegate: "CPU",
-    },
-    runningMode, numHands: 1,
-  });
-}
+// Now handled by useFaceTracker hook - see utils/useFaceTracker.js
+
 
 // ─── PARTICLES ────────────────────────────────────────────────────────────────
 function createParticles(count=80) {
@@ -178,10 +168,15 @@ const COMBOS = {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function EmojiMirror() {
+  // ── Initialize custom hook for hand tracking ───────────────────────────────
+  const { 
+    handLandmarkerRef, loadModel, detectFromImage: hookDetectFromImage, 
+    startDetectionLoop: hookStartDetectionLoop, stopDetectionLoop, cleanup 
+  } = useFaceTracker();
+
   // ── Refs ───────────────────────────────────────────────────────────────────
   const canvasRef         = useRef(null);
   const videoRef          = useRef(null);
-  const handLandmarkerRef = useRef(null);
   const cooldownRef       = useRef(false);
   const lastGestureRef    = useRef("none");
   const loopRef           = useRef(null);
@@ -192,7 +187,7 @@ export default function EmojiMirror() {
   const comboRef          = useRef([]);
   const comboTimerRef     = useRef(null);
   const lastLmRef         = useRef(null);
-  const landmarksRef      = useRef(null);   // ← NEW: feeds live landmarks into ThreeCanvas
+  const landmarksRef      = useRef(null);   // ← feeds live landmarks into EmojiScene
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [inputMode, setInputMode]           = useState("image");
@@ -257,20 +252,18 @@ export default function EmojiMirror() {
     landmarksRef.current = null;   // ← clear landmarks so 3D goes idle
   }, []);
 
-  // ── Load MediaPipe model ───────────────────────────────────────────────────
-  const loadModel = useCallback(async (mode) => {
-    setModelReady(false);
-    try {
-      if (handLandmarkerRef.current) { handLandmarkerRef.current.close(); handLandmarkerRef.current=null; }
-      handLandmarkerRef.current = await loadHandLandmarker(mode==="image"?"IMAGE":"VIDEO");
+  // ── Load MediaPipe model (using custom hook) ───────────────────────────────
+  const loadModelWrapper = useCallback(async (mode) => {
+    const success = await loadModel(mode);
+    if (success) {
       setModelReady(true);
-    } catch(err) { console.error("MediaPipe load failed:", err); }
-  }, []);
+    }
+  }, [loadModel]);
 
   const switchMode = useCallback((mode) => {
     stopAll(); setInputMode(mode); setDrawMode(false); drawPathRef.current=[];
-    renderGrid(); loadModel(mode);
-  }, [stopAll]);
+    renderGrid(); loadModelWrapper(mode);
+  }, [stopAll, loadModelWrapper]);
 
   // ── Canvas grid ────────────────────────────────────────────────────────────
   const renderGrid = useCallback(() => {
@@ -287,7 +280,7 @@ export default function EmojiMirror() {
     }
   }, [T.grid]);
 
-  useEffect(() => { renderGrid(); loadModel("image"); }, []);
+  useEffect(() => { renderGrid(); loadModelWrapper("image"); }, [renderGrid, loadModelWrapper]);
 
   // ── Combo checker ──────────────────────────────────────────────────────────
   const checkCombo = useCallback((gesture) => {
@@ -390,7 +383,7 @@ export default function EmojiMirror() {
     }
   }, []);
 
-  // ── MODE 1: Static image ───────────────────────────────────────────────────
+  // ── MODE 1: Static image (using custom hook) ───────────────────────────────
   const detectFromImage = useCallback(() => {
     if (!handLandmarkerRef.current || !modelReady) return;
     setScanning(true);
@@ -400,15 +393,14 @@ export default function EmojiMirror() {
         const canvas = canvasRef.current; const ctx = canvas.getContext("2d");
         canvas.width=img.width; canvas.height=img.height;
         ctx.drawImage(img,0,0);
-        const result = handLandmarkerRef.current.detect(img);
-        if (result.landmarks?.length > 0) {
-          const lm = result.landmarks[0];
-          landmarksRef.current = lm;        // ← NEW
+        const lm = hookDetectFromImage(img);
+        if (lm) {
+          landmarksRef.current = lm;
           drawHand(ctx,lm,canvas.width,canvas.height);
           const gesture = classifyGesture(lm);
           triggerAction(gesture,lm);
         } else {
-          landmarksRef.current = null;      // ← NEW
+          landmarksRef.current = null;
           triggerAction("none",null);
           renderGrid();
         }
@@ -416,48 +408,45 @@ export default function EmojiMirror() {
       setScanning(false);
     };
     img.onerror = ()=>setScanning(false);
-  }, [modelReady, triggerAction, renderGrid]);
+  }, [modelReady, handLandmarkerRef, hookDetectFromImage, triggerAction, renderGrid]);
 
-  // ── Shared video/webcam loop ───────────────────────────────────────────────
+  // ── Shared video/webcam loop (using custom hook) ──────────────────────────
   const startDetectionLoop = useCallback((videoEl, mirror=false) => {
-    const canvas = canvasRef.current;
-    const loop = () => {
-      if (!videoEl||videoEl.paused||videoEl.ended||!handLandmarkerRef.current) return;
-      if (videoEl.readyState < 2) { loopRef.current=requestAnimationFrame(loop); return; }
+    const onLandmarks = (landmarks, canvas) => {
       const ctx = canvas.getContext("2d");
-      canvas.width  = videoEl.videoWidth  || 640;
-      canvas.height = videoEl.videoHeight || 480;
+      
+      // Redraw canvas with grid
       ctx.strokeStyle = T.grid; ctx.lineWidth=1;
       for(let x=0;x<canvas.width;x+=30){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke();}
       for(let y=0;y<canvas.height;y+=30){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();}
+      
+      // Mirror video if needed
       if (mirror) { ctx.save(); ctx.scale(-1,1); ctx.drawImage(videoEl,-canvas.width,0,canvas.width,canvas.height); ctx.restore(); }
       else ctx.drawImage(videoEl,0,0,canvas.width,canvas.height);
+      
+      // Draw paint trail
       if (drawPathRef.current.length>1) {
         ctx.strokeStyle="#ff66ff"; ctx.lineWidth=3; ctx.shadowColor="#ff66ff"; ctx.shadowBlur=8;
         ctx.beginPath(); ctx.moveTo(drawPathRef.current[0].x,drawPathRef.current[0].y);
-        drawPathRef.current.forEach(p=>ctx.lineTo(p.x,p.y)); ctx.stroke(); ctx.shadowBlur=0;
+        drawPathRef.current.forEach(p=>ctx.lineTo(p.x, p.y)); ctx.stroke(); ctx.shadowBlur=0;
       }
-      try {
-        const now = performance.now();
-        const result = handLandmarkerRef.current.detectForVideo(videoEl,now);
-        if (result.landmarks?.length>0) {
-          let lm = result.landmarks[0];
-          if (mirror) lm = lm.map(p=>({...p,x:1-p.x}));
-          landmarksRef.current = lm;        // ← NEW
-          drawHand(ctx,lm,canvas.width,canvas.height);
-          updateDrawing(lm,canvas.width,canvas.height);
-          const gesture = classifyGesture(lm);
-          triggerAction(gesture,lm);
-        } else {
-          landmarksRef.current = null;      // ← NEW
-          triggerAction("none",null);
-        }
-      } catch(e) { /* skip frame */ }
+      
+      // Detect gesture and trigger action
+      if (landmarks) {
+        drawHand(ctx,landmarks,canvas.width,canvas.height);
+        updateDrawing(landmarks,canvas.width,canvas.height);
+        const gesture = classifyGesture(landmarks);
+        triggerAction(gesture,landmarks);
+      } else {
+        triggerAction("none",null);
+      }
+      
       updateFps();
-      loopRef.current = requestAnimationFrame(loop);
     };
-    loopRef.current = requestAnimationFrame(loop);
-  }, [T.grid, triggerAction, updateDrawing, updateFps]);
+    
+    // Start the detection loop using the hook
+    loopRef.current = hookStartDetectionLoop(videoEl, canvasRef, onLandmarks, mirror);
+  }, [T.grid, hookStartDetectionLoop, triggerAction, updateDrawing, updateFps]);
 
   // ── MODE 2: Video file ─────────────────────────────────────────────────────
   const startVideo = useCallback(() => {
@@ -638,7 +627,7 @@ export default function EmojiMirror() {
                 {/* 3D Three.js layer — overlays canvas absolutely */}
                 {show3D && (
                   <div style={{ position:"absolute", inset:0 }}>
-                    <ThreeCanvas landmarksRef={landmarksRef} gesture={currentGesture} />
+                    <EmojiScene landmarksRef={landmarksRef} gesture={currentGesture} />
                   </div>
                 )}
 
