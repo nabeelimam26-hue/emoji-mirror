@@ -2,6 +2,9 @@
 title Git Auto-Push - Emoji Mirror
 echo 🚀 Starting the Git Pipeline...
 
+:: This ensures Git uses the saved credentials
+git config credential.helper store
+
 :: Step 1: Stage all changes
 git add .
 echo ✅ Files staged.
