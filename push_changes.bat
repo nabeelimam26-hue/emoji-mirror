@@ -1,25 +1,22 @@
-﻿@echo off
+@echo off
 title Git Auto-Push - Emoji Mirror
-echo 🚀 Starting the Git Pipeline...
+echo Starting the Git Pipeline...
 
-:: This ensures Git uses the saved credentials
-git config credential.helper store
+:: 1. Cleanup and Sync
+if exist username_pass.txt del username_pass.txt
+git config --global credential.helper store
+git pull origin main --rebase
 
-:: Step 1: Stage all changes
+:: 2. Stage all changes
 git add .
-echo ✅ Files staged.
+echo Files staged.
 
-:: Step 2: Ask for a commit message
+:: 3. Message and Push
 set /p msg="Enter your commit message: "
-
-:: Step 3: Commit the changes
 git commit -m "%msg%"
-echo ✅ Changes committed.
-
-:: Step 4: Push to GitHub
-echo 📤 Pushing to GitHub...
+echo Pushing to GitHub...
 git push origin main
 
 echo.
-echo ✨ Success! Your changes are now traveling to Vercel.
+echo Success! Your changes are traveling to Vercel.
 pause
