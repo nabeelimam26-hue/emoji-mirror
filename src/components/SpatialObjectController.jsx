@@ -73,12 +73,16 @@ export default function SpatialObjectController({ handsRef }) {
   const targetScale = useRef(1);
   const currentScale = useRef(1);
 
-  // Hand tracking state
+  // Hand tracking state — all refs, no setState in animation loop
   const handDistanceRef = useRef(1);
+  const handCountRef    = useRef(0);  // ← ref not state, avoids re-renders
 
-  const [status, setStatus] = useState("waiting for hands…");
+  const [status,    setStatus]    = useState("waiting for hands…");
   const [handCount, setHandCount] = useState(0);
   const [initError, setInitError] = useState(null);
+
+  // Throttle UI updates to max 4x/sec so React doesn't re-render every frame
+  const lastUIUpdate = useRef(0);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -218,8 +222,7 @@ export default function SpatialObjectController({ handsRef }) {
           );
 
           if (leftHand && rightHand) {
-            setStatus("tracking 2 hands ✓");
-            setHandCount(2);
+            handCountRef.current = 2;
 
             // Get palm position (landmark 0)
             const leftPalm = lmToWorld(leftHand.landmarks[0]);
@@ -267,8 +270,7 @@ export default function SpatialObjectController({ handsRef }) {
           } else if (handsData.hands.length === 1) {
             // Single hand: just track position
             const hand = handsData.hands[0];
-            setStatus(`tracking 1 hand (${hand.handedness})`);
-            setHandCount(1);
+            handCountRef.current = 1;
 
             const palm = lmToWorld(hand.landmarks[0]);
             targetPos.current.set(palm.x, palm.y, palm.z);
@@ -279,8 +281,7 @@ export default function SpatialObjectController({ handsRef }) {
             handMarkers[1].visible = false;
           }
         } else {
-          setStatus("waiting for hands…");
-          setHandCount(0);
+          handCountRef.current = 0;
           handMarkers.forEach((m) => (m.visible = false));
         }
 
@@ -303,26 +304,21 @@ export default function SpatialObjectController({ handsRef }) {
         torusKnot.scale.setScalar(currentScale.current);
 
         // ── DYNAMIC LIGHTING: Color by hand distance ────────────────────────
-        if (handCount === 2) {
+        if (handCountRef.current === 2) {
           const handDist = handDistanceRef.current;
-          // Close (< 0.3) → Red, Far (> 0.8) → Cyan
-          const t = Math.max(
-            0,
-            Math.min(
-              1,
-              (handDist - HAND_DISTANCE_MIN) /
-                (HAND_DISTANCE_MAX - HAND_DISTANCE_MIN),
-            ),
-          );
-          const closeColor = new THREE.Color(0xff3366); // Red
-          const farColor = new THREE.Color(0x00ffcc); // Cyan
-          const lerpColor = new THREE.Color().lerpColors(
-            closeColor,
-            farColor,
-            t,
-          );
-          pLight1.color.copy(lerpColor);
+          const t = Math.max(0, Math.min(1, (handDist - HAND_DISTANCE_MIN) / (HAND_DISTANCE_MAX - HAND_DISTANCE_MIN)));
+          const closeColor = new THREE.Color(0xff3366);
+          const farColor   = new THREE.Color(0x00ffcc);
+          pLight1.color.lerpColors(closeColor, farColor, t);
           pLight1.intensity = 2 + Math.sin(now * 0.003) * 0.5;
+        }
+
+        // ── THROTTLED UI STATE UPDATE (max 4x/sec) ────────────────────────────
+        if (now - lastUIUpdate.current > 250) {
+          lastUIUpdate.current = now;
+          const cnt = handCountRef.current;
+          setHandCount(cnt);
+          setStatus(cnt === 2 ? "tracking 2 hands ✓" : cnt === 1 ? "tracking 1 hand" : "waiting for hands…");
         }
 
         // ── ORBITING SECONDARY LIGHTS ────────────────────────────────────────

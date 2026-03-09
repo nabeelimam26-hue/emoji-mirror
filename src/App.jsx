@@ -428,7 +428,8 @@ export default function EmojiMirror() {
   // ── Stop everything ────────────────────────────────────────────────────────
   const stopAll = useCallback(() => {
     if (loopRef.current) {
-      cancelAnimationFrame(loopRef.current);
+      cancelAnimationFrame(loopRef.current.id);
+      loopRef.current.id = null;
       loopRef.current = null;
     }
     if (streamRef.current) {
@@ -821,7 +822,8 @@ export default function EmojiMirror() {
 
   const stopVideo = useCallback(() => {
     if (loopRef.current) {
-      cancelAnimationFrame(loopRef.current);
+      cancelAnimationFrame(loopRef.current.id);
+      loopRef.current.id = null;
       loopRef.current = null;
     }
     if (videoRef.current) {
@@ -861,7 +863,8 @@ export default function EmojiMirror() {
 
   const stopWebcam = useCallback(() => {
     if (loopRef.current) {
-      cancelAnimationFrame(loopRef.current);
+      cancelAnimationFrame(loopRef.current.id);
+      loopRef.current.id = null;
       loopRef.current = null;
     }
     if (streamRef.current) {
